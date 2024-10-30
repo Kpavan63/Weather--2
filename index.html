@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Weather Web App</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/sweetalert2/11.0.0/sweetalert2.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(to bottom, #a8edea, #fed6e3);
+            transition: background 0.5s ease;
+        }
+        header {
+            background: rgba(255, 255, 255, 0.8);
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .current-weather {
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        .card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin: 10px;
+            flex: 1;
+            min-width: 300px;
+            max-width: 400px;
+            transition: transform 0.3s;
+        }
+        .card:hover {
+            transform: scale(1.05);
+        }
+        .forecast {
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+        }
+        .chart-container {
+            margin: 20px 0;
+        }
+        .chart {
+            height: 300px;
+            width: 100%;
+        }
+        @media (max-width: 768px) {
+            .current-weather, .forecast {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Weather App</h1>
+    <input type="text" id="locationInput" placeholder="Enter location (lat,long)">
+    <button id="getWeatherButton">Get Weather</button>
+</header>
+
+<div class="container">
+    <div class="current-weather" id="currentWeather"></div>
+    <div class="forecast" id="forecast"></div>
+    <div class="chart-container">
+        <canvas id="temperatureChart" class="chart"></canvas>
+        <canvas id="precipitationChart" class="chart"></canvas>
+        <canvas id="windChart" class="chart"></canvas>
+        <canvas id="uvChart" class="chart"></canvas>
+        <canvas id="aqiChart" class="chart"></canvas>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const API_KEY = 'VjsZ65p0eNh64T9DFpYj1KJ7umDPhpGe'; // Replace with your own API key
+    const API_BASE_URL = 'https://api.tomorrow.io/v4/timelines';
+
+    let isRequesting = false; // Prevent multiple requests
+
+    async function getWeatherData(location) {
+        if (isRequesting) {
+            Swal.fire('Error!', 'Please wait while we fetch the data.', 'info');
+            return;
+        }
+
+        isRequesting = true; // Set to true to prevent further requests
+
+        try {
+            const response = await fetch(`${API_BASE_URL}?location=${location}&fields=temperature,temperatureApparent,weatherCode,humidity,windSpeed,windDirection,precipitationProbability,uvIndex,epaIndex&timesteps=1h,1d&units=metric&apikey=${API_KEY}`);
+            
+            // Check if the response status is 429
+            if (response.status === 429) {
+                Swal.fire('Error!', 'You have exceeded the rate limit. Please try again later.', 'error');
+                return;
+            }
+
+            const data = await response.json();
+
+            // Check if the data contains timelines
+            if (!data.data || !data.data.timelines || data.data.timelines.length === 0) {
+                Swal.fire('Error!', 'Could not find weather data for this location.', 'error');
+                return;
+            }
+
+            displayCurrentWeather(location, data.data.timelines[0].intervals[0]);
+            displayForecast(data.data.timelines[1].intervals.slice(1, 6));
+            createTemperatureChart(data.data.timelines[0].intervals.slice(0, 24));
+            createPrecipitationChart(data.data.timelines[0].intervals.slice(0, 24));
+            createWindChart(data.data.timelines[0].intervals.slice(0, 24));
+            createUVChart(data.data.timelines[0].intervals.slice(0, 24));
+            createAQIChart(data.data.timelines[0].intervals.slice(0, 24));
+        } catch (error) {
+            console.error('Error fetching weather data:', error);
+            Swal.fire('Error!', 'Could not fetch weather data. Please try again.', 'error');
+        } finally {
+            isRequesting = false; // Reset the request flag
+        }
+    }
+
+    function displayCurrentWeather(location, weatherData) {
+        const currentWeatherDiv = document.getElementById('currentWeather');
+        currentWeatherDiv.innerHTML = `
+            <div class="card">
+                <h2>Current Weather</h2>
+                <p><strong>Location:</strong> ${location}</p>
+                <p><strong>Temperature:</strong> ${weatherData.temperature} °C</p>
+                <p><strong>Feels Like:</strong> ${weatherData.temperatureApparent} °C</p>
+                <p><strong>Weather Code:</strong> ${weatherData.weatherCode}</p>
+                <p><strong>Humidity:</strong> ${weatherData.humidity} %</p>
+                <p><strong>Wind Speed:</strong> ${weatherData.windSpeed} m/s</p>
+                <p><strong>Wind Direction:</strong> ${weatherData.windDirection} °</p>
+                <p><strong>Precipitation Probability:</strong> ${weatherData.precipitationProbability} %</p>
+                <p><strong>UV Index:</strong> ${weatherData.uvIndex}</p>
+                <p><strong>EPA Index:</strong> ${weatherData.epaIndex}</p>
+            </div>
+        `;
+    }
+
+    function displayForecast(forecastData) {
+        const forecastDiv = document.getElementById('forecast');
+        forecastDiv.innerHTML = '';
+        forecastData.forEach(forecast => {
+            forecastDiv.innerHTML += `
+                <div class="card">
+                    <h2>Forecast</h2>
+                    <p><strong>Temperature:</strong> ${forecast.temperature} °C</p>
+                    <p><strong>Weather Code:</strong> ${forecast.weatherCode}</p>
+                </div>
+            `;
+        });
+    }
+
+    function createTemperatureChart(data) {
+        const ctx = document.getElementById('temperatureChart').getContext('2d');
+        const labels = data.map(d => new Date(d.datetime).toLocaleTimeString());
+        const temperatures = data.map(d => d.temperature);
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Temperature (°C)',
+                    data: temperatures,
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 2,
+                    fill: false,
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                    }
+                }
+            }
+        });
+    }
+
+    function createPrecipitationChart(data) {
+        const ctx = document.getElementById('precipitationChart').getContext('2d');
+        const labels = data.map(d => new Date(d.datetime).toLocaleTimeString());
+        const precipitation = data.map(d => d.precipitationProbability);
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Precipitation Probability (%)',
+                    data: precipitation,
+                    backgroundColor: 'rgba(153, 102, 255, 0.5)',
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                    }
+                }
+            }
+        });
+    }
+
+    function createWindChart(data) {
+        const ctx = document.getElementById('windChart').getContext('2d');
+        const labels = data.map(d => new Date(d.datetime).toLocaleTimeString());
+        const windSpeeds = data.map(d => d.windSpeed);
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Wind Speed (m/s)',
+                    data: windSpeeds,
+                    borderColor: 'rgba(255, 206, 86, 1)',
+                    borderWidth: 2,
+                    fill: false,
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                    }
+                }
+            }
+        });
+    }
+
+    function createUVChart(data) {
+        const ctx = document.getElementById('uvChart').getContext('2d');
+        const labels = data.map(d => new Date(d.datetime).toLocaleTimeString());
+        const uvIndex = data.map(d => d.uvIndex);
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'UV Index',
+                    data: uvIndex,
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 2,
+                    fill: false,
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                    }
+                }
+            }
+        });
+    }
+
+    function createAQIChart(data) {
+        const ctx = document.getElementById('aqiChart').getContext('2d');
+        const labels = data.map(d => new Date(d.datetime).toLocaleTimeString());
+        const aqiIndex = data.map(d => d.epaIndex);
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Air Quality Index (EPA)',
+                    data: aqiIndex,
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 2,
+                    fill: false,
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                    }
+                }
+            }
+        });
+    }
+
+    document.getElementById('getWeatherButton').addEventListener('click', () => {
+        const locationInput = document.getElementById('locationInput').value;
+        if (locationInput) {
+            getWeatherData(locationInput);
+        } else {
+            Swal.fire('Error!', 'Please enter a valid location.', 'error');
+        }
+    });
+</script>
+
+</body>
+</html>
